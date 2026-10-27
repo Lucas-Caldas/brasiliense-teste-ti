@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Brasiliense - Teste F SIS-03</title>
+  <style>
+    :root { font-family: Segoe UI, Arial, sans-serif; color: #1a1a1a; }
+    body { margin: 0; background: #f4f6f8; }
+    header { background: #0b3d91; color: #fff; padding: 16px 24px; }
+    main { max-width: 1100px; margin: 20px auto; padding: 0 16px 40px; }
+    .card { background: #fff; border: 1px solid #d9dee7; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    h2 { margin-top: 0; font-size: 1.1rem; }
+    label { display: block; font-size: 0.85rem; margin-top: 8px; }
+    input, select, button, textarea { font: inherit; }
+    input, select, textarea { width: 100%; box-sizing: border-box; padding: 8px; margin-top: 4px; }
+    .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+    button { margin-top: 12px; padding: 8px 14px; cursor: pointer; background: #0b3d91; color: #fff; border: 0; border-radius: 6px; }
+    button.secondary { background: #5c6b7a; }
+    button.danger { background: #b42318; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { border-bottom: 1px solid #e5e8ee; text-align: left; padding: 8px; vertical-align: top; }
+    .muted { color: #667085; font-size: 0.85rem; }
+    .apto { border: 1px dashed #c8d0dc; border-radius: 6px; padding: 10px; margin-top: 10px; }
+    .pagamentos { margin-top: 10px; }
+    .pagamentos-title { font-size: 0.85rem; margin-bottom: 6px; }
+    .pag { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end; margin-top: 6px; }
+    .pag label { margin-top: 0; }
+    .pag button { margin-top: 0; }
+    pre { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 6px; overflow: auto; }
+  </style>
+</head>
+<body>
+<header style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+  <div>
+    <strong>Brasiliense Sistemas - F SIS-03</strong>
+    <div class="muted" style="color:#dbe7ff">CRUD com detalhe das entidades (Edifício / Apartamento / Pagamentos) + Ranking</div>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a href="/swagger-ui.html" target="_blank" rel="noopener"
+       style="color:#fff;background:#1d4f9c;padding:8px 12px;border-radius:6px;text-decoration:none;font-size:0.9rem">
+      Swagger API
+    </a>
+    <a href="/h2-console" target="_blank" rel="noopener"
+       style="color:#fff;background:#1d4f9c;padding:8px 12px;border-radius:6px;text-decoration:none;font-size:0.9rem">
+      H2 Console
+    </a>
+    <a href="/readme" target="_blank" rel="noopener"
+       style="color:#fff;background:#1d4f9c;padding:8px 12px;border-radius:6px;text-decoration:none;font-size:0.9rem">
+      README
+    </a>
+  </div>
+</header>
+<main>
+  <div class="card">
+    <h2>1) Cadastro (CRUD) com detalhe das entidades</h2>
+    <p class="muted">Edifício com lista de apartamentos e pagamentos de condomínio.</p>
+    <div class="row">
+      <div><label>Código edifício</label><input id="edCodigo" type="number" /></div>
+      <div><label>Nome</label><input id="edNome" type="text" /></div>
+      <div><label>Andares</label><input id="edAndares" type="number" /></div>
+      <div><label>Cidade</label><select id="edCidade"></select></div>
+    </div>
+    <div id="aptos"></div>
+    <button type="button" onclick="addApto()">+ Apartamento</button>
+    <button type="button" onclick="salvarEdificio()">Salvar edifício</button>
+    <button type="button" class="secondary" onclick="limparForm()">Limpar</button>
+  </div>
+
+  <div class="card">
+    <h2>Edifícios cadastrados</h2>
+    <button type="button" class="secondary" onclick="carregarEdificios()">Atualizar lista</button>
+    <div id="lista" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card">
+    <h2>2) Ranking - 3 maiores somatórios de condomínio</h2>
+    <div class="row">
+      <div><label>Data início</label><input id="dtIni" type="date" value="2011-01-01" /></div>
+      <div><label>Data fim</label><input id="dtFim" type="date" value="2011-12-31" /></div>
+    </div>
+    <button type="button" onclick="buscarRanking()">Consultar ranking</button>
+    <div id="ranking" style="margin-top:12px"></div>
+  </div>
+</main>
+<script>
+let aptoSeq = 0;
+let proximoCodigoPagamento = 100;
+
+async function api(path, options) {
+  const res = await fetch(path, Object.assign({ headers: { 'Content-Type': 'application/json' } }, options || {}));
+  if (!res.ok) {
+    let msg = await res.text();
+    try { msg = JSON.parse(msg).erro || msg; } catch (_) {}
+    throw new Error(msg || res.statusText);
+  }
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+function toDateInput(value) {
+  if (!value) return '';
+  return String(value).slice(0, 10);
+}
+
+function atualizarProximoCodigoPagamento(lista) {
+  let max = proximoCodigoPagamento - 1;
+  (lista || []).forEach(e => {
+    (e.apartamentos || []).forEach(a => {
+      (a.pagamentos || []).forEach(p => {
+        if (p.codigo != null && p.codigo > max) max = p.codigo;
+      });
+    });
+  });
+  document.querySelectorAll('.p-codigo').forEach(el => {
+    const n = Number(el.value);
+    if (n > max) max = n;
+  });
+  proximoCodigoPagamento = max + 1;
+}
+
+async function carregarCidades() {
+  const cidades = await api('/api/cidades');
+  const sel = document.getElementById('edCidade');
+  sel.innerHTML = cidades.map(c => `<option value="${c.codigo}">${c.nome}/${c.estado}</option>`).join('');
+}
+
+function addPagamento(container, data) {
+  const row = document.createElement('div');
+  row.className = 'pag';
+  const codigo = data?.codigo ?? proximoCodigoPagamento++;
+  row.innerHTML = `
+    <input class="p-codigo" type="hidden" value="${codigo}" />
+    <div><label>Data</label><input class="p-data" type="date" value="${toDateInput(data?.dataPagamento)}" /></div>
+    <div><label>Valor</label><input class="p-valor" type="number" step="0.01" min="0.01" placeholder="450.00" value="${data?.valorPagamento ?? ''}" /></div>
+    <button type="button" class="danger" onclick="this.parentElement.remove()">Remover</button>
+  `;
+  container.appendChild(row);
+}
+
+function addApto(data) {
+  const id = ++aptoSeq;
+  const wrap = document.createElement('div');
+  wrap.className = 'apto';
+  wrap.dataset.id = id;
+  wrap.innerHTML = `
+    <strong>Apartamento</strong>
+    <div class="row">
+      <div><label>Código</label><input class="a-codigo" type="number" value="${data?.codigo ?? ''}" /></div>
+      <div><label>Metragem</label><input class="a-metragem" type="number" step="0.01" value="${data?.metragem ?? ''}" /></div>
+      <div><label>Andar</label><input class="a-andar" type="number" value="${data?.andar ?? ''}" /></div>
+      <div><label>Quartos</label><input class="a-quartos" type="number" value="${data?.numeroQuartos ?? ''}" /></div>
+    </div>
+    <div class="pagamentos">
+      <div class="pagamentos-title">Pagamentos</div>
+      <div class="a-pagamentos"></div>
+      <button type="button" class="secondary" onclick="addPagamento(this.previousElementSibling)">+ Pagamento</button>
+    </div>
+    <button type="button" class="danger" onclick="this.parentElement.remove()">Remover apto</button>
+  `;
+  document.getElementById('aptos').appendChild(wrap);
+  const pagContainer = wrap.querySelector('.a-pagamentos');
+  const pagamentos = data?.pagamentos || [];
+  if (pagamentos.length) {
+    pagamentos.forEach(p => addPagamento(pagContainer, p));
+  }
+}
+
+function montarPayload() {
+  const apartamentos = [...document.querySelectorAll('.apto')].map(el => {
+    const pagamentos = [...el.querySelectorAll('.pag')].map(pag => {
+      const data = pag.querySelector('.p-data').value;
+      const valor = pag.querySelector('.p-valor').value;
+      if (!data || !valor) return null;
+      return {
+        codigo: Number(pag.querySelector('.p-codigo').value),
+        dataPagamento: data + 'T00:00:00',
+        valorPagamento: Number(valor)
+      };
+    }).filter(Boolean);
+    return {
+      codigo: Number(el.querySelector('.a-codigo').value),
+      metragem: Number(el.querySelector('.a-metragem').value),
+      andar: Number(el.querySelector('.a-andar').value),
+      numeroQuartos: Number(el.querySelector('.a-quartos').value),
+      pagamentos
+    };
+  });
+  return {
+    codigo: Number(document.getElementById('edCodigo').value),
+    nome: document.getElementById('edNome').value,
+    andares: Number(document.getElementById('edAndares').value),
+    codigoCidade: Number(document.getElementById('edCidade').value),
+    apartamentos
+  };
+}
+
+async function salvarEdificio() {
+  try {
+    const body = montarPayload();
+    const existe = await fetch('/api/edificios/' + body.codigo);
+    if (existe.ok) {
+      await api('/api/edificios/' + body.codigo, { method: 'PUT', body: JSON.stringify(body) });
+      alert('Edifício atualizado');
+    } else {
+      await api('/api/edificios', { method: 'POST', body: JSON.stringify(body) });
+      alert('Edifício criado');
+    }
+    carregarEdificios();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+function limparForm() {
+  document.getElementById('edCodigo').value = '';
+  document.getElementById('edNome').value = '';
+  document.getElementById('edAndares').value = '';
+  document.getElementById('aptos').innerHTML = '';
+}
+
+async function carregarEdificios() {
+  const lista = await api('/api/edificios');
+  atualizarProximoCodigoPagamento(lista);
+  document.getElementById('lista').innerHTML = `
+    <table>
+      <thead><tr><th>Código</th><th>Nome</th><th>Cidade</th><th>Aptos</th><th></th></tr></thead>
+      <tbody>
+        ${lista.map(e => `
+          <tr>
+            <td>${e.codigo}</td>
+            <td>${e.nome}</td>
+            <td>${e.cidade?.nome || ''} / ${e.cidade?.estado || ''}</td>
+            <td>${(e.apartamentos || []).length}</td>
+            <td>
+              <button class="secondary" onclick='editar(${JSON.stringify(e).replace(/'/g, "&#39;")})'>Editar</button>
+              <button class="danger" onclick="excluir(${e.codigo})">Excluir</button>
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+function editar(e) {
+  document.getElementById('edCodigo').value = e.codigo;
+  document.getElementById('edNome').value = e.nome;
+  document.getElementById('edAndares').value = e.andares;
+  document.getElementById('edCidade').value = e.cidade?.codigo;
+  document.getElementById('aptos').innerHTML = '';
+  (e.apartamentos || []).forEach(a => addApto(a));
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function excluir(codigo) {
+  if (!confirm('Excluir edifício ' + codigo + '?')) return;
+  await api('/api/edificios/' + codigo, { method: 'DELETE' });
+  carregarEdificios();
+}
+
+async function buscarRanking() {
+  const ini = document.getElementById('dtIni').value;
+  const fim = document.getElementById('dtFim').value;
+  const data = await api(`/api/ranking-condominio?dataInicio=${ini}&dataFim=${fim}`);
+  document.getElementById('ranking').innerHTML = `
+    <table>
+      <thead><tr><th>#</th><th>Apto</th><th>Edifício</th><th>Andar</th><th>Metragem</th><th>Total pago</th></tr></thead>
+      <tbody>
+        ${data.map((r, i) => `<tr>
+          <td>${i + 1}</td>
+          <td>${r.codigoApartamento}</td>
+          <td>${r.nomeEdificio}</td>
+          <td>${r.andar}</td>
+          <td>${r.metragem}</td>
+          <td>${Number(r.totalPago).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+        </tr>`).join('') || '<tr><td colspan="6">Sem resultados no período</td></tr>'}
+      </tbody>
+    </table>`;
+}
+
+carregarCidades().then(() => { addApto(); carregarEdificios(); });
+</script>
+</body>
+</html>
